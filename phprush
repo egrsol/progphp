@@ -1,0 +1,120 @@
+#!/usr/bin/env php
+<?php
+
+if (PHP_SAPI !== 'cli') {
+    return;
+}
+
+class TaskUnit
+{
+    private $id = 0;
+    private $name = '';
+    private $description = '';
+    private $pattern = '';
+    private $script = '';
+
+    public  function __construct($id,$name, $description, $pattern, $script)
+    {
+        $this->id=$id;
+        $this->name=$name;
+        $this->description=$description;
+        $this->pattern=$pattern;
+        $this->script=$script;
+    }
+
+    public function writeToFile()
+    {
+        $src_file = fopen("task$this->id.php",'wt');
+        $src_pattern = "#!/usr/bin/env php\n<?php\n\nrequire \"lib/func.php\";\n\n/*\n$this->name\n$this->description\n*/\n$this->pattern\n\n";
+        fwrite($src_file,$src_pattern);
+    }
+
+    public function getId()
+    {
+        return $this->id;
+    }
+}
+
+function execsql($sql, bool $isquery=false)
+{
+    $pdo = new PDO('sqlite:phprush.sq3');
+    if($isquery) {
+        $data = $pdo->query($sql);
+        $result = $data->fetch();
+    } else {
+        $result = $pdo->exec($sql);
+    }
+    return $result;
+}
+
+function getTask(string $task_num)
+{
+	$sql = "SELECT name, description, pattern, script FROM 'task_unit' WHERE id=$task_num";
+	$res = execsql($sql, true);
+	$taskUnit = new TaskUnit($task_num, $res['name'],$res['description'],$res['pattern'],$res['script']);
+    return $taskUnit;
+}
+
+function addTask(string $task_name, string $task_description, string $task_pattern, string $task_script)
+{
+    $new_task_unit = new TaskUnit($task_name,$task_description,$task_pattern,$task_script);
+	$sql = "INSERT INTO 'task_unit' ('name','description','pattern','script') VALUES ('$task_name', '$task_description','$task_pattern','$task_script')";
+	$result = execsql($sql);
+    return $result;
+}
+
+function checkTask(TaskUnit $taskUnit)
+{
+    ob_start();
+    $out_errors = '';
+    $filename = 'task'.$taskUnit->getId().'.php';
+    try {
+        eval('?>' . file_get_contents($filename));
+    } catch (Exception $ex) {
+        $out_errors = $ex->getMessage();
+    }
+    finally {
+        $out_result = ob_get_contents();
+        ob_clean();
+        $script_result = $taskUnit->getScript();
+        if ($out_errors === '') {
+            if ($out_result === $script_result) {
+                $result = "Programma vipolnilas uspeshno.\n";
+                closeTask($taskUnit->getId());
+            } else {
+                $result = "Programms rabotaet, no zadanie ne vipolneno\n";
+            }
+        } else {
+            $result = "Osibka v programme: \n";
+            $result .= $out_errors;
+        }
+    }
+    return $result;
+}
+
+function addTaskUnit(int $taskId)
+{
+	$sql = "INSERT INTO 'userinfo' ('id_user', 'id_task', 'status') VALUES (1, $taskId, 2)";
+	$result = execsql($sql);
+	return $result;
+}
+
+function closeTask(int $taskId)
+{
+    $sql = "UPDATE 'userinfo' SET 'status'=1 WHERE id_user=1 AND id_task=$taskId";
+    $result = execsql($sql);
+    return $result;
+}
+
+try {
+    $task_num = readline('Vvedite nomer zadachi:');
+    $taskUnit = getTask($task_num);
+    addTaskUnit($taskUnit->getId());
+    //if (checkIsOpen($taskUnit)) {
+        $taskUnit = getTask($taskUnit->getId());
+        $taskUnit->writeToFile();
+    //}
+}catch (Exception $e) {
+    $errStr = $ex->getMessage().$ex->getTraceAsString().$ex->getCode()."\n";
+    error_log($errStr,3,'logfile.log');
+}
